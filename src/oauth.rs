@@ -113,7 +113,7 @@ pub async fn exchange_code_for_tokens(code: &str) -> Result<crate::config::accou
 
     // Create and save account
     let account = crate::config::account::create_account(
-        user_info.email,
+        user_info.email.clone(),
         user_info.get_display_name(),
         token,
     )?;

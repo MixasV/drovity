@@ -13,7 +13,11 @@ pub async fn start_foreground() -> Result<()> {
     println!("Press Ctrl+C to stop");
     
     // Start proxy server
-    crate::proxy::start_server(config.proxy).await?;
+    let proxy_config = crate::proxy::config::ProxyConfig {
+        port: config.proxy.port,
+        api_key: config.proxy.api_key.clone(),
+    };
+    crate::proxy::start_server(proxy_config).await?;
     
     Ok(())
 }
@@ -62,7 +66,11 @@ pub async fn start_background() -> Result<()> {
                 nix::unistd::dup2(fd, std::io::stderr().as_raw_fd())?;
                 
                 // Start server
-                crate::proxy::start_server(config.proxy).await?;
+                let proxy_config = crate::proxy::config::ProxyConfig {
+                    port: config.proxy.port,
+                    api_key: config.proxy.api_key.clone(),
+                };
+                crate::proxy::start_server(proxy_config).await?;
             }
             Err(e) => {
                 anyhow::bail!("Fork failed: {}", e);
