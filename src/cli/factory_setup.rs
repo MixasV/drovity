@@ -50,35 +50,45 @@ pub async fn show_factory_setup() -> Result<()> {
 
 async fn auto_configure_factory() -> Result<()> {
     println!();
-    println!("{}", style("Searching for Factory Droid settings...").yellow());
+    println!("{}", style("🔍 Searching for Factory Droid settings...").yellow());
     
-    let settings_path = find_factory_settings()?;
+    let (settings_path, created) = find_or_create_factory_settings()?;
     
     match settings_path {
         Some(path) => {
-            println!("{}", style(format!("[SUCCESS] Found: {}", path.display())).green());
+            if created {
+                println!("{}", style("✨ Created new settings.json").green());
+            } else {
+                println!("{}", style(format!("✅ Found: {}", path.display())).green());
+            }
             println!();
-            println!("{}", style("Updating settings...").yellow());
+            println!("{}", style("⚙️  Configuring drovity models...").yellow());
             
             crate::factory::auto_configure(&path).await?;
             
             println!();
-            println!("{}", style("[SUCCESS] Factory Droid settings updated successfully!").green().bold());
+            println!("{}", style("╔══════════════════════════════════════════════════════════════╗").green());
+            println!("{}", style("║         ✅ Factory Droid Configured Successfully!            ║").green().bold());
+            println!("{}", style("╚══════════════════════════════════════════════════════════════╝").green());
             println!();
-            println!("{}", style("You can now use drovity models in Factory Droid:").cyan());
-            println!("  - Type {} in Factory Droid CLI", style("/model").cyan().bold());
-            println!("  - Select a model starting with {}", style("[drovity]").cyan().bold());
+            println!("{}", style("📝 Settings file:").cyan());
+            println!("   {}", style(path.display()).cyan().bold());
+            println!();
+            println!("{}", style("🚀 Next steps:").yellow().bold());
+            println!("   1. Start drovity proxy: {}", style("drovity start").cyan().bold());
+            println!("   2. In Factory Droid CLI, type: {}", style("/model").cyan().bold());
+            println!("   3. Select a model with {}", style("[drovity]").cyan().bold());
             println!();
             println!("{}", style("Press any key to continue...").dim());
         }
         None => {
-            println!("{}", style("[ERROR] Could not find Factory Droid settings file.").red());
+            println!("{}", style("❌ Factory Droid directory not found").red().bold());
             println!();
-            println!("{}", style("Expected location:").yellow());
-            println!("  Linux/macOS: ~/.factory/settings.json");
-            println!("  Windows: C:\\Users\\<USER>\\.factory\\settings.json");
+            println!("{}", style("💡 Solutions:").yellow().bold());
+            println!("   1. Install Factory Droid:");
+            println!("      {}", style("curl -fsSL https://app.factory.ai/cli | sh").cyan());
             println!();
-            println!("{}", style("Please use 'Manual Setup' to view and copy configuration.").yellow());
+            println!("   2. Or use 'Manual Setup' to view and copy configuration");
             println!();
             println!("{}", style("Press any key to continue...").dim());
         }
@@ -120,13 +130,35 @@ async fn show_manual_config() -> Result<()> {
     Ok(())
 }
 
-fn find_factory_settings() -> Result<Option<PathBuf>> {
-    let home = dirs::home_dir().context("Could not find home directory")?;
-    let settings_path = home.join(".factory").join("settings.json");
+/// Find Factory settings or create if .factory directory exists
+fn find_or_create_factory_settings() -> Result<(Option<PathBuf>, bool)> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Ok((None, false)),
+    };
     
+    let factory_dir = home.join(".factory");
+    let settings_path = factory_dir.join("settings.json");
+    
+    // If settings.json exists, return it
     if settings_path.exists() {
-        Ok(Some(settings_path))
-    } else {
-        Ok(None)
+        return Ok((Some(settings_path), false));
     }
+    
+    // If .factory directory exists, create settings.json
+    if factory_dir.exists() && factory_dir.is_dir() {
+        // Create minimal settings.json structure
+        let initial_settings = serde_json::json!({
+            "customModels": []
+        });
+        
+        let settings_content = serde_json::to_string_pretty(&initial_settings)?;
+        std::fs::write(&settings_path, settings_content)
+            .context("Failed to create settings.json")?;
+        
+        return Ok((Some(settings_path), true));
+    }
+    
+    // Neither settings.json nor .factory directory exists
+    Ok((None, false))
 }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use dialoguer::{theme::ColorfulTheme, Select, Input};
+use dialoguer::{theme::ColorfulTheme, Select};
 use console::{style, Term};
 
 pub async fn show_accounts_menu() -> Result<()> {
@@ -78,37 +78,29 @@ async fn add_account_oauth() -> Result<()> {
     println!("{}", style("========================================").cyan());
     println!();
 
-    // Generate OAuth URL
-    let auth_url = crate::oauth::generate_auth_url()?;
-    
-    println!("{}", style("Step 1: Open this URL in your browser:").yellow().bold());
-    println!();
-    println!("{}", style(&auth_url).blue().underlined());
-    println!();
-    println!("{}", style("Step 2: After authorization, Google will show you a CODE.").yellow().bold());
-    println!("{}", style("Copy that code and paste it below:").yellow().bold());
-    println!();
-
-    let code: String = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("Enter authorization code")
-        .interact_text()?;
-
-    println!();
-    println!("{}", style("Processing...").yellow());
-
-    // Exchange code for tokens
-    match crate::oauth::exchange_code_for_tokens(&code).await {
+    // Use Device Authorization Flow
+    match crate::oauth::authorize_device().await {
         Ok(account) => {
             println!();
-            println!("{}", style("[SUCCESS] Account added successfully!").green().bold());
-            println!("Email: {}", style(&account.email).cyan());
+            println!("{}", style("╔══════════════════════════════════════════════════════════════╗").green());
+            println!("{}", style("║              ✅ Account Added Successfully!                  ║").green().bold());
+            println!("{}", style("╚══════════════════════════════════════════════════════════════╝").green());
+            println!();
+            println!("📧 Email: {}", style(&account.email).cyan().bold());
+            if let Some(name) = &account.display_name {
+                println!("👤 Name: {}", style(name).cyan());
+            }
             println!();
             println!("{}", style("Press any key to continue...").dim());
             term.read_key()?;
         }
         Err(e) => {
             println!();
-            println!("{}", style(format!("[ERROR] {}", e)).red().bold());
+            println!("{}", style("╔══════════════════════════════════════════════════════════════╗").red());
+            println!("{}", style("║                   ❌ Authorization Failed                    ║").red().bold());
+            println!("{}", style("╚══════════════════════════════════════════════════════════════╝").red());
+            println!();
+            println!("{}", style(format!("Error: {}", e)).red());
             println!();
             println!("{}", style("Press any key to continue...").dim());
             term.read_key()?;

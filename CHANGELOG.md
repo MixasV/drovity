@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-01-14
+
+### Fixed
+- **Critical**: Google OAuth authorization now works! Switched from deprecated OOB flow to Device Authorization Flow
+  - Fixes `Error 400: invalid_request` when authorizing Google accounts
+  - Works perfectly on headless servers (no GUI needed)
+  - User opens URL on ANY device (phone/computer), enters code, server auto-completes
+
+### Changed
+- OAuth flow now uses Device Authorization (RFC 8628) instead of OOB
+- Better user experience: clear instructions, no manual code copy-paste
+- Authorization works from any device with a browser
+
+### Added
+- **Smart Factory Droid configuration**: Auto-creates `settings.json` if `.factory` folder exists
+  - No need to run `droid` first - drovity creates the config automatically
+  - Perfect for fresh installations on servers
+
 ## [0.1.1] - 2026-01-14
 
 ### Added
