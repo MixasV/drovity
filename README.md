@@ -19,9 +19,16 @@ A lightweight CLI tool that provides a local API proxy for Google Gemini models,
 
 ### Installation
 
-#### One-line install (Linux/macOS)
+#### One-line install
+
+**Linux/macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MixasV/drovity/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/MixasV/drovity/main/install.ps1 | iex
 ```
 
 #### Manual installation
