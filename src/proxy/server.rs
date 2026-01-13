@@ -153,7 +153,7 @@ async fn handle_anthropic_messages(
     Json(payload): Json<Value>,
 ) -> Response {
     // Convert Anthropic format to OpenAI format
-    let mut openai_payload = json!({
+    let openai_payload = json!({
         "model": payload["model"].as_str().unwrap_or("claude-sonnet-4-5"),
         "messages": payload["messages"],
         "max_tokens": payload.get("max_tokens").unwrap_or(&json!(4096)),

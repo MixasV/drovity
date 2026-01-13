@@ -171,7 +171,7 @@ pub async fn is_running() -> Result<bool> {
         use nix::sys::signal::{kill, Signal};
         use nix::unistd::Pid;
         
-        match kill(Pid::from_raw(pid), Signal::from_c_int(0)) {
+        match kill(Pid::from_raw(pid), None) {
             Ok(_) => Ok(true),
             Err(_) => {
                 // Process doesn't exist, remove stale PID file
