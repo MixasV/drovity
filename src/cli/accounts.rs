@@ -78,8 +78,8 @@ async fn add_account_oauth() -> Result<()> {
     println!("{}", style("========================================").cyan());
     println!();
 
-    // Use Device Authorization Flow
-    match crate::oauth::authorize_device().await {
+    // Use manual callback method (works on servers)
+    match crate::oauth::authorize_with_manual_callback().await {
         Ok(account) => {
             println!();
             println!("{}", style("╔══════════════════════════════════════════════════════════════╗").green());
