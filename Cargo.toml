@@ -45,6 +45,9 @@ async-stream = "0.3.6"
 pin-project = "1.1"
 bytes = "1.5"
 
+# OpenSSL vendored for cross-compilation
+openssl = { version = "0.10", features = ["vendored"] }
+
 # Crypto
 base64 = "0.22"
 sha2 = "0.10"
