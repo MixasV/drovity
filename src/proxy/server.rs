@@ -1,0 +1,307 @@
+use anyhow::Result;
+use axum::{
+    body::Body,
+    extract::{Json, State},
+    http::{header, StatusCode, HeaderMap},
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Router,
+};
+use serde_json::{json, Value};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use super::config::ProxyConfig;
+
+#[derive(Clone)]
+struct AppState {
+    accounts: Arc<RwLock<Vec<crate::config::account::Account>>>,
+    current_account_index: Arc<RwLock<usize>>,
+}
+
+pub async fn start_server(config: ProxyConfig) -> Result<()> {
+    // Load accounts
+    let accounts = crate::config::account::list_accounts()?;
+    
+    if accounts.is_empty() {
+        anyhow::bail!("No accounts configured. Add accounts first using 'drovity menu'");
+    }
+    
+    let state = AppState {
+        accounts: Arc::new(RwLock::new(accounts)),
+        current_account_index: Arc::new(RwLock::new(0)),
+    };
+    
+    let app = Router::new()
+        // OpenAI compatible endpoints
+        .route("/v1/chat/completions", post(handle_chat_completions))
+        .route("/v1/messages", post(handle_anthropic_messages))
+        .route("/v1/models", get(handle_list_models))
+        .route("/healthz", get(health_check))
+        .with_state(state);
+    
+    let addr = format!("{}:{}", config.get_bind_address(), config.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    
+    tracing::info!("Proxy server started on http://{}", addr);
+    tracing::info!("Loaded {} account(s)", crate::config::account::list_accounts()?.len());
+    
+    axum::serve(listener, app).await?;
+    
+    Ok(())
+}
+
+async fn health_check() -> Response {
+    Json(json!({
+        "status": "ok",
+        "service": "drovity"
+    }))
+    .into_response()
+}
+
+async fn handle_list_models() -> Response {
+    Json(json!({
+        "object": "list",
+        "data": [
+            {
+                "id": "gemini-3-flash",
+                "object": "model",
+                "created": 1704067200,
+                "owned_by": "google"
+            },
+            {
+                "id": "gemini-2.5-flash",
+                "object": "model",
+                "created": 1704067200,
+                "owned_by": "google"
+            },
+            {
+                "id": "gemini-2.5-pro",
+                "object": "model",
+                "created": 1704067200,
+                "owned_by": "google"
+            },
+            {
+                "id": "claude-sonnet-4-5",
+                "object": "model",
+                "created": 1704067200,
+                "owned_by": "anthropic"
+            }
+        ]
+    }))
+    .into_response()
+}
+
+async fn handle_chat_completions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(mut payload): Json<Value>,
+) -> Response {
+    // Factory Droid format conversion: input -> messages
+    if let Some(input) = payload.get("input").cloned() {
+        payload["messages"] = convert_input_to_messages(input);
+        payload.as_object_mut().unwrap().remove("input");
+    }
+    
+    // Get current account
+    let account = {
+        let accounts = state.accounts.read().await;
+        let index = *state.current_account_index.read().await;
+        accounts.get(index).cloned()
+    };
+    
+    let account = match account {
+        Some(acc) => acc,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "No accounts available"}))
+            ).into_response();
+        }
+    };
+    
+    // Check if token needs refresh
+    let token = match refresh_token_if_needed(&account).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("Failed to refresh token: {}", e);
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": format!("Authentication failed: {}", e)}))
+            ).into_response();
+        }
+    };
+    
+    // Forward to Gemini API
+    let model = payload["model"].as_str().unwrap_or("gemini-2.5-flash");
+    let gemini_model = map_model_to_gemini(model);
+    
+    match forward_to_gemini(&token, &gemini_model, &payload).await {
+        Ok(response) => response,
+        Err(e) => {
+            tracing::error!("Gemini API error: {}", e);
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": format!("Upstream API error: {}", e)}))
+            ).into_response()
+        }
+    }
+}
+
+async fn handle_anthropic_messages(
+    State(state): State<AppState>,
+    Json(payload): Json<Value>,
+) -> Response {
+    // Convert Anthropic format to OpenAI format
+    let mut openai_payload = json!({
+        "model": payload["model"].as_str().unwrap_or("claude-sonnet-4-5"),
+        "messages": payload["messages"],
+        "max_tokens": payload.get("max_tokens").unwrap_or(&json!(4096)),
+        "stream": payload.get("stream").unwrap_or(&json!(false)),
+    });
+    
+    // Forward through chat completions handler
+    handle_chat_completions(State(state), HeaderMap::new(), Json(openai_payload)).await
+}
+
+fn convert_input_to_messages(input: Value) -> Value {
+    if let Some(array) = input.as_array() {
+        let messages: Vec<Value> = array.iter().map(|msg| {
+            let role = msg["role"].as_str().unwrap_or("user");
+            let content = if let Some(content_array) = msg["content"].as_array() {
+                // Extract text from content blocks
+                let text_parts: Vec<String> = content_array.iter()
+                    .filter_map(|block| {
+                        if block["type"] == "input_text" {
+                            block["text"].as_str().map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                json!(text_parts.join("\n"))
+            } else {
+                msg["content"].clone()
+            };
+            
+            json!({
+                "role": role,
+                "content": content
+            })
+        }).collect();
+        
+        json!(messages)
+    } else {
+        json!([])
+    }
+}
+
+async fn refresh_token_if_needed(account: &crate::config::account::Account) -> Result<String> {
+    use chrono::Utc;
+    
+    let now = Utc::now().timestamp();
+    
+    // If token expires in less than 5 minutes, refresh
+    if account.token.expiry_timestamp < now + 300 {
+        let token_response = crate::oauth::refresh_access_token(&account.token.refresh_token).await?;
+        Ok(token_response.access_token)
+    } else {
+        Ok(account.token.access_token.clone())
+    }
+}
+
+fn map_model_to_gemini(model: &str) -> String {
+    match model {
+        "gemini-3-flash" => "gemini-exp-1206".to_string(),
+        "gemini-3-pro-high" => "gemini-exp-1206".to_string(),
+        "gemini-2.5-flash" => "gemini-2.0-flash-exp".to_string(),
+        "gemini-2.5-pro" => "gemini-2.0-flash-thinking-exp-01-21".to_string(),
+        "claude-sonnet-4-5" => "gemini-2.0-flash-exp".to_string(), // Fallback
+        _ => "gemini-2.0-flash-exp".to_string(),
+    }
+}
+
+async fn forward_to_gemini(token: &str, model: &str, payload: &Value) -> Result<Response> {
+    let client = reqwest::Client::new();
+    
+    // Convert OpenAI format to Gemini format
+    let gemini_payload = convert_to_gemini_format(payload)?;
+    
+    let url = format!(
+        "https://cloudcode-pa.googleapis.com/v1internal/models/{}:generateContent",
+        model
+    );
+    
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .json(&gemini_payload)
+        .send()
+        .await?;
+    
+    if !response.status().is_success() {
+        let error_text = response.text().await?;
+        anyhow::bail!("Gemini API error: {}", error_text);
+    }
+    
+    let gemini_response: Value = response.json().await?;
+    
+    // Convert Gemini response back to OpenAI format
+    let openai_response = convert_gemini_to_openai_response(&gemini_response, model)?;
+    
+    Ok(Json(openai_response).into_response())
+}
+
+fn convert_to_gemini_format(payload: &Value) -> Result<Value> {
+    let messages = payload["messages"].as_array()
+        .ok_or_else(|| anyhow::anyhow!("Missing messages field"))?;
+    
+    let contents: Vec<Value> = messages.iter().map(|msg| {
+        let role = match msg["role"].as_str().unwrap_or("user") {
+            "assistant" => "model",
+            role => role,
+        };
+        
+        json!({
+            "role": role,
+            "parts": [{
+                "text": msg["content"].as_str().unwrap_or("")
+            }]
+        })
+    }).collect();
+    
+    Ok(json!({
+        "contents": contents,
+        "generationConfig": {
+            "maxOutputTokens": payload.get("max_tokens").unwrap_or(&json!(8192)),
+            "temperature": payload.get("temperature").unwrap_or(&json!(1.0)),
+        }
+    }))
+}
+
+fn convert_gemini_to_openai_response(gemini_response: &Value, model: &str) -> Result<Value> {
+    let text = gemini_response["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    
+    Ok(json!({
+        "id": format!("chatcmpl-{}", uuid::Uuid::new_v4()),
+        "object": "chat.completion",
+        "created": chrono::Utc::now().timestamp(),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": text
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        }
+    }))
+}
