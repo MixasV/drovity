@@ -1,8 +1,7 @@
 use anyhow::Result;
 use axum::{
-    body::Body,
     extract::{Json, State},
-    http::{header, StatusCode, HeaderMap},
+    http::{StatusCode, HeaderMap},
     response::{IntoResponse, Response},
     routing::{get, post},
     Router,
@@ -94,7 +93,7 @@ async fn handle_list_models() -> Response {
 
 async fn handle_chat_completions(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(mut payload): Json<Value>,
 ) -> Response {
     // Factory Droid format conversion: input -> messages
