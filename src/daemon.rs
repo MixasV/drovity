@@ -70,6 +70,10 @@ pub async fn start_background(enable_logging: bool) -> Result<()> {
                     nix::unistd::dup2(fd, std::io::stderr().as_raw_fd())?;
                 }
                 
+                // CRITICAL: Initialize tracing AFTER fork in child process
+                // Without this, tracing doesn't work properly in daemon mode
+                crate::setup_logging()?;
+                
                 // Start server
                 let proxy_config = crate::proxy::config::ProxyConfig {
                     port: config.proxy.port,

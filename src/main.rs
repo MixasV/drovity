@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn setup_logging() -> Result<()> {
+pub fn setup_logging() -> Result<()> {
     use std::fs::OpenOptions;
     use tracing_subscriber::fmt::writer::MakeWriterExt;
     
