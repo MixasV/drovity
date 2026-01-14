@@ -484,7 +484,7 @@ fn convert_to_gemini_format(payload: &Value, model: &str, project_id: &str) -> R
         "request": inner_request,
         "model": model,
         "userAgent": "antigravity",
-        "requestType": "text"
+        "requestType": "agent"  // CRITICAL: Must be "agent" not "text" for proper quota!
     }))
 }
 
