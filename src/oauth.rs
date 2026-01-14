@@ -64,24 +64,58 @@ pub async fn authorize_with_manual_callback() -> Result<crate::config::account::
     println!("   The page won't load (that's OK!), but the URL will contain a CODE.");
     println!("   Look for {}\n", console::style("?code=").green().bold());
     
-    println!("✂️  {} Copy EVERYTHING after '?code=' from the URL\n", console::style("Step 4:").yellow().bold());
+    println!("✂️  {} You can paste either:\n", console::style("Step 4:").yellow().bold());
+    println!("   • The FULL callback URL (e.g., http://localhost:8087/oauth/callback?code=...)");
+    println!("   • OR just the code itself\n");
     
     // Step 2: Get authorization code from user
-    let code = dialoguer::Input::<String>::new()
-        .with_prompt("Paste the authorization code here")
+    let input = dialoguer::Input::<String>::new()
+        .with_prompt("Paste the callback URL or authorization code")
         .interact_text()?;
     
-    let code = code.trim().to_string();
+    let input = input.trim().to_string();
     
-    if code.is_empty() {
+    if input.is_empty() {
         anyhow::bail!("Authorization code cannot be empty");
     }
+    
+    // Extract code from URL if user pasted full URL
+    let code = extract_code_from_input(&input)?;
     
     println!();
     println!("{}", console::style("⏳ Exchanging code for tokens...").yellow());
     
     // Step 3: Exchange code for tokens
     exchange_code_for_tokens(&code).await
+}
+/// Extract authorization code from user input
+/// Accepts either:
+/// - Full OAuth callback URL: http://localhost:8087/oauth/callback?code=ABC123&scope=...
+/// - Just the code: ABC123
+fn extract_code_from_input(input: &str) -> Result<String> {
+    // Check if input looks like a URL
+    if input.starts_with("http://") || input.starts_with("https://") {
+        // Parse as URL and extract 'code' parameter
+        let url = url::Url::parse(input)
+            .context("Invalid URL format")?;
+        
+        // Extract 'code' query parameter
+        let code = url.query_pairs()
+            .find(|(key, _)| key == "code")
+            .map(|(_, value)| value.to_string())
+            .ok_or_else(|| anyhow::anyhow!("No 'code' parameter found in URL"))?;
+        
+        if code.is_empty() {
+            anyhow::bail!("The 'code' parameter in URL is empty");
+        }
+        
+        println!("✅ Extracted code from URL: {}...", console::style(&code[..20.min(code.len())]).green());
+        
+        Ok(code)
+    } else {
+        // Assume it's just the code itself
+        Ok(input.to_string())
+    }
 }
 
 /// Generate OAuth authorization URL

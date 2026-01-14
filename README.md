@@ -81,8 +81,10 @@ drovity
 # Follow the OAuth flow:
 #   1. Copy and open the URL in your browser
 #   2. Authorize with your Google account
-#   3. Copy the authorization code from Google
-#   4. Paste it back in the terminal
+#   3. Paste the FULL callback URL or just the code:
+#      ✅ Full URL: http://localhost:8087/oauth/callback?code=4/0ASc3gC2f...
+#      ✅ Just code: 4/0ASc3gC2f...
+#   4. Done! The code will be extracted automatically
 # Account added!
 ```
 
