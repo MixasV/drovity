@@ -537,7 +537,6 @@ async fn send_gemini_payload_direct(
     }
     
     // ORIGINAL LOGIC: bytes_stream -> create_claude_sse_stream
-    use futures::StreamExt;
     use axum::body::Body;
     
     let stream = response.bytes_stream();
@@ -547,8 +546,14 @@ async fn send_gemini_payload_direct(
     // Client wants JSON (non-stream) - collect the stream
     if !stream_requested {
         use super::claude::collect_stream_to_json;
+        use futures::StreamExt;
         
-        match collect_stream_to_json(Box::pin(claude_stream)).await {
+        // Convert Stream<Result<Bytes, String>> to Stream<Result<Bytes, io::Error>>
+        let converted_stream = claude_stream.map(|result| {
+            result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        });
+        
+        match collect_stream_to_json(Box::pin(converted_stream)).await {
             Ok(full_response) => {
                 tracing::info!("✅ Stream collected to JSON");
                 Ok((
