@@ -411,18 +411,50 @@ async fn refresh_token_if_needed(account: &crate::config::account::Account) -> R
 }
 
 fn map_model_to_gemini(model: &str) -> String {
+    // EXACT COPY from DroidGravity-Manager/src/proxy/common/model_mapping.rs
     match model {
-        "gemini-3-flash" => "gemini-exp-1206".to_string(),
-        "gemini-3-pro-high" => "gemini-exp-1206".to_string(),
-        "gemini-3-pro-low" => "gemini-exp-1206".to_string(),
-        "gemini-2.5-flash" => "gemini-2.0-flash-exp".to_string(),
-        "gemini-2.5-flash-lite" => "gemini-2.0-flash-exp".to_string(),
-        "gemini-2.5-pro" => "gemini-2.0-flash-thinking-exp-01-21".to_string(),
-        "gemini-2.5-flash-thinking" => "gemini-2.0-flash-thinking-exp-01-21".to_string(),
-        "claude-sonnet-4-5" => "gemini-2.0-flash-exp".to_string(),
-        "claude-sonnet-4-5-thinking" => "gemini-2.0-flash-thinking-exp-01-21".to_string(),
-        "claude-opus-4-5-thinking" => "gemini-2.0-flash-thinking-exp-01-21".to_string(),
-        _ => "gemini-2.0-flash-exp".to_string(),
+        // Claude models - PASS THROUGH AS-IS (Antigravity API supports them directly!)
+        "claude-opus-4-5-thinking" => "claude-opus-4-5-thinking".to_string(),
+        "claude-sonnet-4-5" => "claude-sonnet-4-5".to_string(),
+        "claude-sonnet-4-5-thinking" => "claude-sonnet-4-5-thinking".to_string(),
+        
+        // Claude aliases
+        "claude-sonnet-4-5-20250929" => "claude-sonnet-4-5-thinking".to_string(),
+        "claude-3-5-sonnet-20241022" => "claude-sonnet-4-5".to_string(),
+        "claude-3-5-sonnet-20240620" => "claude-sonnet-4-5".to_string(),
+        "claude-opus-4" => "claude-opus-4-5-thinking".to_string(),
+        "claude-opus-4-5-20251101" => "claude-opus-4-5-thinking".to_string(),
+        "claude-haiku-4" => "claude-sonnet-4-5".to_string(),
+        "claude-3-haiku-20240307" => "claude-sonnet-4-5".to_string(),
+        "claude-haiku-4-5-20251001" => "claude-sonnet-4-5".to_string(),
+        
+        // OpenAI → Gemini
+        "gpt-4" | "gpt-4-turbo" | "gpt-4-turbo-preview" | "gpt-4-0125-preview" 
+        | "gpt-4-1106-preview" | "gpt-4-0613" | "gpt-4o" | "gpt-4o-2024-05-13" 
+        | "gpt-4o-2024-08-06" => "gemini-2.5-pro".to_string(),
+        
+        "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" | "gpt-3.5-turbo" | "gpt-3.5-turbo-16k" 
+        | "gpt-3.5-turbo-0125" | "gpt-3.5-turbo-1106" | "gpt-3.5-turbo-0613" 
+        => "gemini-2.5-flash".to_string(),
+        
+        // Gemini pass-through
+        "gemini-2.5-flash-lite" => "gemini-2.5-flash-lite".to_string(),
+        "gemini-2.5-flash-thinking" => "gemini-2.5-flash-thinking".to_string(),
+        "gemini-3-pro-low" => "gemini-3-pro-low".to_string(),
+        "gemini-3-pro-high" => "gemini-3-pro-high".to_string(),
+        "gemini-3-pro-preview" => "gemini-3-pro-preview".to_string(),
+        "gemini-3-pro" => "gemini-3-pro".to_string(),
+        "gemini-2.5-flash" => "gemini-2.5-flash".to_string(),
+        "gemini-3-flash" => "gemini-3-flash".to_string(),
+        "gemini-3-pro-image" => "gemini-3-pro-image".to_string(),
+        "gemini-2.0-flash-exp" => "gemini-2.0-flash-exp".to_string(),
+        "gemini-2.5-pro" => "gemini-2.5-pro".to_string(),
+        
+        // Pass-through for gemini-* prefix or *-thinking suffix
+        model if model.starts_with("gemini-") || model.contains("thinking") => model.to_string(),
+        
+        // Default fallback
+        _ => "claude-sonnet-4-5".to_string(),
     }
 }
 
