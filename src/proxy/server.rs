@@ -352,7 +352,6 @@ async fn forward_to_gemini_stream(token: &str, model: &str, project_id: &str, pa
     let response = client
         .post(url)
         .header("Authorization", format!("Bearer {}", token))
-        .header("Host", "cloudcode-pa.googleapis.com")
         .header("User-Agent", "antigravity/1.11.9 windows/amd64")
         .header("Content-Type", "application/json")
         .json(&gemini_payload)
