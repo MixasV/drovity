@@ -87,13 +87,13 @@ fn setup_logging() -> Result<()> {
         .append(true)
         .open(&log_file)?;
     
-    // Setup tracing subscriber with file output
+    // Setup tracing subscriber with file output (DEBUG level for detailed logs)
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"))
         )
-        .with_writer(file.with_max_level(tracing::Level::INFO))
+        .with_writer(file.with_max_level(tracing::Level::DEBUG))
         .with_ansi(false)
         .init();
     
