@@ -18,11 +18,11 @@ A lightweight CLI tool that provides a local API proxy for Google Gemini models,
 ## 📺 Video Tutorial
 
 <div align="center">
-  <a href="https://youtu.be/ozUUQjlDqLk">
+  <a href="https://youtu.be/ozUUQjlDqLk" target="_blank" rel="noopener noreferrer">
     <img src="drovity.gif" alt="Drovity Installation and Setup Demo" width="800">
   </a>
   
-  **[▶️ Watch Full Video on YouTube](https://youtu.be/ozUUQjlDqLk)**
+  **[▶️ Watch Full Video on YouTube](https://youtu.be/ozUUQjlDqLk){:target="_blank"}**
 </div>
 
 ---
