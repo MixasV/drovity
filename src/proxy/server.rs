@@ -260,12 +260,104 @@ async fn handle_anthropic_messages(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> Response {
-    // Convert Anthropic format to OpenAI format
+    tracing::info!("📥 Incoming Claude/Anthropic messages request");
+    tracing::info!("   Model: {}", payload["model"].as_str().unwrap_or("not specified"));
+    
+    // Convert Anthropic/Claude format to OpenAI format
+    // Claude format: {"role": "user", "content": [{"type": "text", "text": "..."}]}
+    // OpenAI format: {"role": "user", "content": "..."}
+    
+    let mut converted_messages: Vec<Value> = Vec::new();
+    
+    // Handle system prompt (Claude has separate "system" field)
+    if let Some(system) = payload.get("system") {
+        let system_text = match system {
+            Value::String(s) => s.clone(),
+            Value::Array(arr) => {
+                // Array of system blocks
+                arr.iter()
+                    .filter_map(|block| {
+                        if block["type"] == "text" {
+                            block["text"].as_str().map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            },
+            _ => String::new(),
+        };
+        
+        if !system_text.is_empty() {
+            converted_messages.push(json!({
+                "role": "system",
+                "content": system_text
+            }));
+        }
+    }
+    
+    // Convert messages
+    if let Some(messages) = payload["messages"].as_array() {
+        for msg in messages {
+            let role = msg["role"].as_str().unwrap_or("user");
+            
+            // Convert Claude content format to simple string
+            let content = match &msg["content"] {
+                Value::String(s) => s.clone(),
+                Value::Array(arr) => {
+                    // Claude uses array of content blocks
+                    arr.iter()
+                        .filter_map(|block| {
+                            match block["type"].as_str() {
+                                Some("text") => block["text"].as_str().map(|s| s.to_string()),
+                                Some("tool_result") => {
+                                    // Extract text from tool result
+                                    if let Some(content) = block["content"].as_str() {
+                                        Some(content.to_string())
+                                    } else if let Some(arr) = block["content"].as_array() {
+                                        Some(arr.iter()
+                                            .filter_map(|b| b["text"].as_str())
+                                            .collect::<Vec<_>>()
+                                            .join("\n"))
+                                    } else {
+                                        Some("[tool result]".to_string())
+                                    }
+                                },
+                                Some("tool_use") => {
+                                    // Include tool call info as text
+                                    let name = block["name"].as_str().unwrap_or("unknown");
+                                    Some(format!("[Tool: {}]", name))
+                                },
+                                Some("thinking") => {
+                                    // Include thinking as text
+                                    block["thinking"].as_str().map(|s| format!("[Thinking: {}]", s))
+                                },
+                                _ => None,
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                },
+                _ => String::new(),
+            };
+            
+            if !content.is_empty() {
+                converted_messages.push(json!({
+                    "role": role,
+                    "content": content
+                }));
+            }
+        }
+    }
+    
+    tracing::info!("   Converted {} messages", converted_messages.len());
+    
     let openai_payload = json!({
         "model": payload["model"].as_str().unwrap_or("claude-sonnet-4-5"),
-        "messages": payload["messages"],
-        "max_tokens": payload.get("max_tokens").unwrap_or(&json!(4096)),
-        "stream": payload.get("stream").unwrap_or(&json!(false)),
+        "messages": converted_messages,
+        "max_tokens": payload.get("max_tokens").unwrap_or(&json!(8192)),
+        "temperature": payload.get("temperature").unwrap_or(&json!(1.0)),
     });
     
     // Forward through chat completions handler
