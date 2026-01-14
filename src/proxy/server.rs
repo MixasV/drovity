@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 
 use super::config::ProxyConfig;
 
-const MAX_RETRY_ATTEMPTS: usize = 10;
+const MAX_RETRY_ATTEMPTS: usize = 3;  // Reduced from 10 to avoid excessive retries
 
 #[derive(Clone)]
 struct AppState {

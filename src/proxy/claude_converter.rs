@@ -7,9 +7,13 @@ use serde_json::{json, Value};
 /// Convert Claude request to Gemini v1internal format
 /// Simplified version - handles text messages only
 pub fn claude_to_gemini_request(claude_body: &Value, model: &str, project_id: &str) -> Result<Value> {
+    // DEBUG: Log incoming payload to diagnose "Missing messages" error
+    tracing::info!("🔍 [CONVERTER] Incoming Claude payload:");
+    tracing::info!("   {}", serde_json::to_string_pretty(claude_body).unwrap_or_else(|_| "Failed to serialize".to_string()));
+    
     // Extract Claude request fields
     let messages = claude_body["messages"].as_array()
-        .ok_or_else(|| anyhow::anyhow!("Missing messages"))?;
+        .ok_or_else(|| anyhow::anyhow!("Missing messages field"))?;
     
     let system_prompt = claude_body.get("system");
     
