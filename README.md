@@ -22,7 +22,7 @@ A lightweight CLI tool that provides a local API proxy for Google Gemini models,
     <img src="drovity.gif" alt="Drovity Installation and Setup Demo" width="800">
   </a>
   
-  **[▶️ Watch Full Video on YouTube](https://youtu.be/ozUUQjlDqLk){:target="_blank"}**
+  <p><strong><a href="https://youtu.be/ozUUQjlDqLk" target="_blank" rel="noopener noreferrer">▶️ Watch Full Video on YouTube</a></strong></p>
 </div>
 
 ---
