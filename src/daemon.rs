@@ -57,6 +57,10 @@ pub async fn start_background(enable_logging: bool) -> Result<()> {
                 // Child: create new session and continue
                 setsid().context("Failed to create new session")?;
                 
+                // CRITICAL: Initialize tracing FIRST, before redirecting stdout/stderr
+                // This ensures tracing creates its file writer before process becomes daemon
+                crate::setup_logging()?;
+                
                 // Redirect stdout/stderr to log file (ONLY if logging enabled)
                 if enable_logging {
                     let log_file = crate::config::get_config_dir()?.join("proxy.log");
@@ -69,10 +73,6 @@ pub async fn start_background(enable_logging: bool) -> Result<()> {
                     nix::unistd::dup2(fd, std::io::stdout().as_raw_fd())?;
                     nix::unistd::dup2(fd, std::io::stderr().as_raw_fd())?;
                 }
-                
-                // CRITICAL: Initialize tracing AFTER fork in child process
-                // Without this, tracing doesn't work properly in daemon mode
-                crate::setup_logging()?;
                 
                 // Start server
                 let proxy_config = crate::proxy::config::ProxyConfig {
