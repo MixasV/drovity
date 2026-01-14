@@ -16,6 +16,10 @@ struct Cli {
     #[arg(long)]
     log: bool,
     
+    /// Internal flag: run as daemon child process (hidden from help)
+    #[arg(long, hide = true)]
+    run_daemon: bool,
+    
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -37,6 +41,22 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    
+    // Special case: if --run-daemon flag is set, we're the spawned daemon child
+    if cli.run_daemon {
+        // ALWAYS setup logging for daemon mode
+        setup_logging()?;
+        
+        // Load config and start server
+        let config = crate::config::load_config()?;
+        let proxy_config = crate::proxy::config::ProxyConfig {
+            port: config.proxy.port,
+            api_key: config.proxy.api_key.clone(),
+            allow_lan_access: config.proxy.allow_lan_access,
+        };
+        crate::proxy::start_server(proxy_config).await?;
+        return Ok(());
+    }
     
     // Setup logging only if --log flag is provided
     if cli.log {

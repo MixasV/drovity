@@ -1,7 +1,5 @@
 use anyhow::{Result, Context};
 use std::path::PathBuf;
-
-#[cfg(windows)]
 use std::process::{Command, Stdio};
 
 pub async fn start_foreground() -> Result<()> {
@@ -25,7 +23,7 @@ pub async fn start_foreground() -> Result<()> {
     Ok(())
 }
 
-pub async fn start_background(enable_logging: bool) -> Result<()> {
+pub async fn start_background(_enable_logging: bool) -> Result<()> {
     // Check if already running
     if is_running().await? {
         anyhow::bail!("Proxy is already running. Use 'drovity stop' first.");
@@ -38,78 +36,23 @@ pub async fn start_background(enable_logging: bool) -> Result<()> {
     let exe = std::env::current_exe()
         .context("Failed to get current executable path")?;
     
-    #[cfg(unix)]
-    {
-        // Unix: fork and daemonize
-        use nix::unistd::{fork, ForkResult, setsid};
-        use std::os::unix::io::AsRawFd;
-        
-        match unsafe { fork() } {
-            Ok(ForkResult::Parent { child }) => {
-                // Parent: save PID and exit
-                std::fs::write(&pid_file, child.to_string())?;
-                println!("[SUCCESS] Proxy started in background (PID: {})", child);
-                println!("   Port: {}", config.proxy.port);
-                println!("   Use 'drovity stop' to stop the server");
-                return Ok(());
-            }
-            Ok(ForkResult::Child) => {
-                // Child: create new session and continue
-                setsid().context("Failed to create new session")?;
-                
-                // CRITICAL: Initialize tracing FIRST, before redirecting stdout/stderr
-                // This ensures tracing creates its file writer before process becomes daemon
-                crate::setup_logging()?;
-                
-                // Redirect stdout/stderr to log file (ONLY if logging enabled)
-                if enable_logging {
-                    let log_file = crate::config::get_config_dir()?.join("proxy.log");
-                    let file = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&log_file)?;
-                    
-                    let fd = file.as_raw_fd();
-                    nix::unistd::dup2(fd, std::io::stdout().as_raw_fd())?;
-                    nix::unistd::dup2(fd, std::io::stderr().as_raw_fd())?;
-                }
-                
-                // Start server
-                let proxy_config = crate::proxy::config::ProxyConfig {
-                    port: config.proxy.port,
-                    api_key: config.proxy.api_key.clone(),
-                    allow_lan_access: config.proxy.allow_lan_access,
-                };
-                crate::proxy::start_server(proxy_config).await?;
-            }
-            Err(e) => {
-                anyhow::bail!("Fork failed: {}", e);
-            }
-        }
-    }
+    // Both Unix and Windows: spawn detached process with --run-daemon flag
+    // DO NOT USE FORK on Unix - tokio runtime doesn't support it!
+    let mut cmd = Command::new(&exe);
+    cmd.arg("--run-daemon");  // Special flag handled in main.rs
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     
-    #[cfg(windows)]
-    {
-        // Windows: spawn detached process with --log flag if enabled
-        let mut cmd = Command::new(&exe);
-        if enable_logging {
-            cmd.arg("--log");
-        }
-        cmd.arg("start")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        
-        let child = cmd.spawn()
-            .context("Failed to spawn background process")?;
-        
-        let pid = child.id();
-        std::fs::write(&pid_file, pid.to_string())?;
-        
-        println!("[SUCCESS] Proxy started in background (PID: {})", pid);
-        println!("   Port: {}", config.proxy.port);
-        println!("   Use 'drovity stop' to stop the server");
-    }
+    let child = cmd.spawn()
+        .context("Failed to spawn background process")?;
+    
+    let pid = child.id();
+    std::fs::write(&pid_file, pid.to_string())?;
+    
+    println!("[SUCCESS] Proxy started in background (PID: {})", pid);
+    println!("   Port: {}", config.proxy.port);
+    println!("   Use 'drovity stop' to stop the server");
     
     Ok(())
 }
