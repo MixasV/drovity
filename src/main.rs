@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Hide) => {
             // Start in background
-            daemon::start_background().await?;
+            daemon::start_background(cli.log).await?;
         }
     }
 

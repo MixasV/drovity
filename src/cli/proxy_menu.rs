@@ -58,7 +58,7 @@ pub async fn show_proxy_menu() -> Result<()> {
                     println!("{}", style("Restarting proxy...").yellow());
                     crate::daemon::stop().await?;
                     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                    crate::daemon::start_background().await?;
+                    crate::daemon::start_background(false).await?;
                     println!("{}", style("[SUCCESS] Proxy restarted").green());
                     println!();
                     println!("{}", style("Press any key to continue...").dim());
@@ -76,7 +76,7 @@ pub async fn show_proxy_menu() -> Result<()> {
                     // Start
                     println!();
                     println!("{}", style("Starting proxy...").yellow());
-                    crate::daemon::start_background().await?;
+                    crate::daemon::start_background(false).await?;
                     println!("{}", style("[SUCCESS] Proxy started").green());
                     println!();
                     println!("{}", style("Press any key to continue...").dim());

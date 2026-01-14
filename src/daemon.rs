@@ -25,7 +25,7 @@ pub async fn start_foreground() -> Result<()> {
     Ok(())
 }
 
-pub async fn start_background() -> Result<()> {
+pub async fn start_background(enable_logging: bool) -> Result<()> {
     // Check if already running
     if is_running().await? {
         anyhow::bail!("Proxy is already running. Use 'drovity stop' first.");
@@ -57,16 +57,18 @@ pub async fn start_background() -> Result<()> {
                 // Child: create new session and continue
                 setsid().context("Failed to create new session")?;
                 
-                // Redirect stdout/stderr to log file
-                let log_file = crate::config::get_config_dir()?.join("proxy.log");
-                let file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&log_file)?;
-                
-                let fd = file.as_raw_fd();
-                nix::unistd::dup2(fd, std::io::stdout().as_raw_fd())?;
-                nix::unistd::dup2(fd, std::io::stderr().as_raw_fd())?;
+                // Redirect stdout/stderr to log file (ONLY if logging enabled)
+                if enable_logging {
+                    let log_file = crate::config::get_config_dir()?.join("proxy.log");
+                    let file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&log_file)?;
+                    
+                    let fd = file.as_raw_fd();
+                    nix::unistd::dup2(fd, std::io::stdout().as_raw_fd())?;
+                    nix::unistd::dup2(fd, std::io::stderr().as_raw_fd())?;
+                }
                 
                 // Start server
                 let proxy_config = crate::proxy::config::ProxyConfig {
@@ -84,13 +86,17 @@ pub async fn start_background() -> Result<()> {
     
     #[cfg(windows)]
     {
-        // Windows: spawn detached process
-        let child = Command::new(&exe)
-            .arg("start")
+        // Windows: spawn detached process with --log flag if enabled
+        let mut cmd = Command::new(&exe);
+        if enable_logging {
+            cmd.arg("--log");
+        }
+        cmd.arg("start")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
+            .stderr(Stdio::null());
+        
+        let child = cmd.spawn()
             .context("Failed to spawn background process")?;
         
         let pid = child.id();

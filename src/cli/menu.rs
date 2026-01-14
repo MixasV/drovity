@@ -50,7 +50,7 @@ pub async fn show_main_menu() -> Result<()> {
                 // Hide mode - start daemon and exit
                 term.clear_screen()?;
                 println!("{}", style("Starting proxy in background...").green());
-                crate::daemon::start_background().await?;
+                crate::daemon::start_background(false).await?;
                 break;
             }
             4 => {

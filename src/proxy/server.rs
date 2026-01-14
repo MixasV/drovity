@@ -273,7 +273,7 @@ async fn forward_to_gemini(token: &str, model: &str, payload: &Value) -> Result<
     tracing::info!("   Payload size: {} bytes", serde_json::to_string(&gemini_payload)?.len());
     
     let response = client
-        .post(&url)
+        .post(url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .json(&gemini_payload)
