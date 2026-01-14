@@ -326,17 +326,28 @@ async fn handle_anthropic_messages(
             }
         };
         
-        // CRITICAL: Convert Claude → Gemini using direct converter
-        let gemini_payload = match super::claude_converter::claude_to_gemini_request(
-            &claude_payload,
-            &gemini_model,
-            &project_id
-        ) {
-            Ok(p) => p,
+        // FULL CONVERSION: Parse Claude request into typed structure
+        let claude_request: super::claude::models::ClaudeRequest = match serde_json::from_value(claude_payload.clone()) {
+            Ok(r) => r,
             Err(e) => {
+                last_error = format!("Failed to parse Claude request: {}", e);
+                tracing::error!("❌ {}", last_error);
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": format!("Claude→Gemini conversion error: {}", e)}))
+                    Json(json!({"error": last_error}))
+                ).into_response();
+            }
+        };
+        
+        // Convert using FULL DroidGravity-Manager logic
+        let gemini_payload = match super::claude::transform_claude_request_in(&claude_request, &project_id) {
+            Ok(p) => p,
+            Err(e) => {
+                last_error = format!("Claude→Gemini conversion error: {}", e);
+                tracing::error!("❌ {}", last_error);
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": last_error}))
                 ).into_response();
             }
         };
