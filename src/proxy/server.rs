@@ -326,12 +326,17 @@ async fn handle_anthropic_messages(
             }
         };
         
+        
+        // DEBUG: Log incoming payload BEFORE parsing
+        tracing::debug!("🔍 RAW Claude payload: {}", serde_json::to_string_pretty(&claude_payload).unwrap_or_else(|_| "Failed to serialize".to_string()));
+        
         // FULL CONVERSION: Parse Claude request into typed structure
         let claude_request: super::claude::models::ClaudeRequest = match serde_json::from_value(claude_payload.clone()) {
             Ok(r) => r,
             Err(e) => {
                 last_error = format!("Failed to parse Claude request: {}", e);
-                tracing::error!("❌ {}", last_error);
+                tracing::error!("❌ Deserialization error: {}", last_error);
+                tracing::error!("   Payload was: {}", serde_json::to_string_pretty(&claude_payload).unwrap_or_else(|_| "N/A".to_string()));
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({"error": last_error}))
