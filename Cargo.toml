@@ -18,7 +18,7 @@ hyper-util = { version = "0.1", features = ["full"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
