@@ -2,7 +2,8 @@ use serde_json::Value;
 
 /// Get project_id using Antigravity's loadCodeAssist API
 pub async fn fetch_project_id(access_token: &str) -> Result<String, String> {
-    let url = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
+    // Use Sandbox environment to avoid Prod 429 errors
+    let url = "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:loadCodeAssist";
     
     let request_body = serde_json::json!({
         "metadata": {
@@ -14,8 +15,7 @@ pub async fn fetch_project_id(access_token: &str) -> Result<String, String> {
     let response = client
         .post(url)
         .bearer_auth(access_token)
-        .header("Host", "cloudcode-pa.googleapis.com")
-        .header("User-Agent", "antigravity/1.11.9 windows/amd64")
+        .header("User-Agent", crate::constants::USER_AGENT.as_str())
         .header("Content-Type", "application/json")
         .json(&request_body)
         .send()

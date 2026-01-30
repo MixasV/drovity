@@ -513,7 +513,7 @@ async fn send_gemini_payload_direct(
         .timeout(std::time::Duration::from_secs(300))
         .build()?;
     
-    let url = "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse";
+    let url = "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse";
     
     tracing::debug!("   POST {} (stream={})", url, stream_requested);
     tracing::debug!("   📤 Gemini payload: {}", serde_json::to_string_pretty(gemini_payload)?);
@@ -521,7 +521,7 @@ async fn send_gemini_payload_direct(
     let response = client
         .post(url)
         .header("Authorization", format!("Bearer {}", token))
-        .header("User-Agent", "antigravity/1.11.9 windows/amd64")
+        .header("User-Agent", crate::constants::USER_AGENT.as_str())
         .header("Content-Type", "application/json")
         .json(gemini_payload)
         .send()
@@ -588,7 +588,7 @@ async fn forward_to_gemini_stream(token: &str, model: &str, project_id: &str, pa
     let gemini_payload = convert_to_gemini_format(payload, model, project_id)?;
     
     // Use streamGenerateContent for better quota
-    let url = "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse";
+    let url = "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse";
     
     tracing::info!("   POST {} (STREAM)", url);
     let payload_string = serde_json::to_string(&gemini_payload)?;
@@ -601,7 +601,7 @@ async fn forward_to_gemini_stream(token: &str, model: &str, project_id: &str, pa
     let response = client
         .post(url)
         .header("Authorization", format!("Bearer {}", token))
-        .header("User-Agent", "antigravity/1.11.9 windows/amd64")
+        .header("User-Agent", crate::constants::USER_AGENT.as_str())
         .header("Content-Type", "application/json")
         .json(&gemini_payload)
         .send()

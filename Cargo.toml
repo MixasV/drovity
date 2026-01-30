@@ -1,6 +1,6 @@
 [package]
 name = "drovity"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 authors = ["Drovity Contributors"]
 description = "CLI proxy for Google Gemini API with Factory Droid integration"
@@ -10,7 +10,7 @@ license = "MIT"
 # HTTP server and client
 axum = { version = "0.7", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json", "stream", "socks", "native-tls-vendored"] }
+reqwest = { version = "0.12", features = ["json", "stream", "socks", "native-tls-vendored", "blocking"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 hyper = { version = "1", features = ["full"] }
