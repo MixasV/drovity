@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-02
+
+### Added
+- **Account Pool Management**: Support for multiple Google accounts with automatic rotation.
+- **Intelligent Rate Limiting**: Quota tracking and rate limit management per account.
+- **Error Protection**: Exponential backoff and protection against 429, 500, 503, and 529 errors.
+- **Health Tracking**: Accounts are automatically marked as temporarily disabled on failures and recovered after a timeout.
+
+### Changed
+- **Dynamic User-Agent**: Switched to dynamic User-Agent with auto-version detection.
+- **Sandbox Endpoints**: API now uses sandbox endpoints to avoid unnecessary 429 errors from Google.
+- **Upstream Compatibility**: Matched latest Google API requirements.
+
 ## [0.1.2] - 2026-01-14
 
 ### Fixed
