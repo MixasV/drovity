@@ -6,9 +6,11 @@ pub mod claude;
 pub mod common;
 pub mod mappers;
 pub mod signature_cache;
+pub mod rate_limit;
 
 pub use server::start_server;
 pub use signature_cache::SignatureCache;
+pub use rate_limit::RateLimitTracker;
 
 
 

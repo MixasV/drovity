@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::collections::HashSet;
 use uuid::Uuid;
 use chrono::Utc;
 
@@ -13,6 +14,35 @@ pub struct Account {
     pub disabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    
+    // [NEW] Enhanced account management fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_tier: Option<String>, // "FREE" | "PRO" | "ULTRA"
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining_quota: Option<i32>, // Remaining quota for priority sorting
+    
+    #[serde(default)]
+    pub protected_models: HashSet<String>, // Models protected by quota limits
+    
+    #[serde(default = "default_health_score")]
+    pub health_score: f32, // Health score (0.0 - 1.0)
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reset_time: Option<i64>, // Quota reset timestamp
+    
+    #[serde(default)]
+    pub validation_blocked: bool, // Temporary validation block
+    
+    #[serde(default)]
+    pub validation_blocked_until: i64, // Block expiration timestamp
+}
+
+fn default_health_score() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +115,15 @@ pub fn create_account(email: String, display_name: Option<String>, token: TokenD
         disabled: false,
         created_at: now,
         updated_at: now,
+        // Initialize new fields with defaults
+        project_id: None,
+        subscription_tier: None,
+        remaining_quota: None,
+        protected_models: HashSet::new(),
+        health_score: 1.0,
+        reset_time: None,
+        validation_blocked: false,
+        validation_blocked_until: 0,
     };
     
     save_account(&account)?;

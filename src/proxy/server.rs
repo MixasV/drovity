@@ -11,13 +11,15 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::config::ProxyConfig;
+use super::rate_limit::RateLimitTracker;
 
-const MAX_RETRY_ATTEMPTS: usize = 3;  // Reduced from 10 to avoid excessive retries
+const MAX_RETRY_ATTEMPTS: usize = 3;
 
 #[derive(Clone)]
 struct AppState {
     accounts: Arc<RwLock<Vec<crate::config::account::Account>>>,
     current_account_index: Arc<RwLock<usize>>,
+    rate_limit_tracker: Arc<RateLimitTracker>,
 }
 
 pub async fn start_server(config: ProxyConfig) -> Result<()> {
@@ -28,9 +30,25 @@ pub async fn start_server(config: ProxyConfig) -> Result<()> {
         anyhow::bail!("No accounts configured. Add accounts first using 'drovity menu'");
     }
     
+    let rate_limit_tracker = Arc::new(RateLimitTracker::new());
+    
+    // Start auto-cleanup task for expired rate limits
+    let tracker_clone = rate_limit_tracker.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            interval.tick().await;
+            let cleaned = tracker_clone.cleanup_expired();
+            if cleaned > 0 {
+                tracing::debug!("🧹 Auto-cleanup: Removed {} expired rate limit record(s)", cleaned);
+            }
+        }
+    });
+    
     let state = AppState {
         accounts: Arc::new(RwLock::new(accounts)),
         current_account_index: Arc::new(RwLock::new(0)),
+        rate_limit_tracker,
     };
     
     let app = Router::new()
@@ -144,6 +162,28 @@ async fn handle_chat_completions(
                 *index_guard = (*index_guard + 1) % pool_size;
                 tracing::info!("🔄 Force rotation: switched to account index {}", *index_guard);
             }
+            
+            // Skip rate-limited accounts
+            let mut tries = 0;
+            loop {
+                if tries >= pool_size {
+                    tracing::warn!("⚠️ All accounts are rate-limited");
+                    break;
+                }
+                
+                let candidate = accounts.get(*index_guard).cloned();
+                if let Some(acc) = &candidate {
+                    let wait_time = state.rate_limit_tracker.get_remaining_wait(&acc.id, None);
+                    if wait_time > 0 {
+                        tracing::debug!("⏭️ Account {} is rate-limited ({}s remaining), trying next", acc.email, wait_time);
+                        *index_guard = (*index_guard + 1) % pool_size;
+                        tries += 1;
+                        continue;
+                    }
+                }
+                break;
+            }
+            
             accounts.get(*index_guard).cloned()
         };
         
@@ -198,6 +238,8 @@ async fn handle_chat_completions(
         match forward_to_gemini_stream(&token, &gemini_model, &project_id, &payload).await {
             Ok(response) => {
                 tracing::info!("✅ Response received from Gemini");
+                // Mark account as successful (reset failure count)
+                state.rate_limit_tracker.mark_success(&account.id);
                 return response;
             },
             Err(e) => {
@@ -208,6 +250,31 @@ async fn handle_chat_completions(
                 
                 // Parse error to decide retry strategy
                 let error_msg = e.to_string();
+                
+                // Track rate limiting errors (429, 503, 500, 529)
+                let status_code = if error_msg.contains("429") { 429 }
+                    else if error_msg.contains("503") { 503 }
+                    else if error_msg.contains("500") { 500 }
+                    else if error_msg.contains("529") { 529 }
+                    else { 0 };
+                
+                if status_code > 0 {
+                    // Use default backoff steps for quota protection
+                    let backoff_steps = vec![60, 300, 1800, 7200];
+                    let rate_info = state.rate_limit_tracker.parse_from_error(
+                        &account.id,
+                        status_code,
+                        None, // retry_after_header
+                        &error_msg,
+                        None, // model
+                        &backoff_steps
+                    );
+                    
+                    if let Some(info) = rate_info {
+                        tracing::warn!("⏰ Account {} rate-limited for {} seconds", 
+                            account.email, info.retry_after_sec);
+                    }
+                }
                 
                 // Check for retryable errors
                 if error_msg.contains("429") || error_msg.contains("503") || error_msg.contains("500") || error_msg.contains("RESOURCE_EXHAUSTED") {
@@ -367,6 +434,8 @@ async fn handle_anthropic_messages(
                 // Stream processing is done inside send_gemini_payload_direct
                 // Just return the response as-is (either SSE stream or collected JSON)
                 tracing::info!("✅ Response ready");
+                // Mark account as successful (reset failure count)
+                state.rate_limit_tracker.mark_success(&account.id);
                 return response;
             },
             Err(e) => {
@@ -374,6 +443,30 @@ async fn handle_anthropic_messages(
                 tracing::error!("❌ Gemini API error (attempt {}/{}): {}", attempt + 1, max_attempts, e);
                 
                 let error_msg = e.to_string();
+                
+                // Track rate limiting errors
+                let status_code = if error_msg.contains("429") { 429 }
+                    else if error_msg.contains("503") { 503 }
+                    else if error_msg.contains("500") { 500 }
+                    else if error_msg.contains("529") { 529 }
+                    else { 0 };
+                
+                if status_code > 0 {
+                    let backoff_steps = vec![60, 300, 1800, 7200];
+                    let rate_info = state.rate_limit_tracker.parse_from_error(
+                        &account.id,
+                        status_code,
+                        None,
+                        &error_msg,
+                        None,
+                        &backoff_steps
+                    );
+                    
+                    if let Some(info) = rate_info {
+                        tracing::warn!("⏰ Account {} rate-limited for {} seconds", 
+                            account.email, info.retry_after_sec);
+                    }
+                }
                 
                 // Retryable: 429, 500, 503
                 if error_msg.contains("429") || error_msg.contains("503") || error_msg.contains("500") || error_msg.contains("RESOURCE_EXHAUSTED") {
