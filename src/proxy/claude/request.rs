@@ -643,7 +643,7 @@ fn build_contents(
                                     base64::engine::general_purpose::STANDARD.encode(sig)
                                 };
                                 
-                                part["thought_signature"] = json!(final_encoded_sig);
+                                // part["thought_signature"] = json!(final_encoded_sig);
                                 // Keep camelCase for backward compatibility with some internal endpoints
                                 part["thoughtSignature"] = json!(final_encoded_sig);
                             }
@@ -734,10 +734,10 @@ fn build_contents(
                                 part["thought_signature"] = json!(final_encoded_sig);
                                 part["thoughtSignature"] = json!(final_encoded_sig);
                                 
-                                // [CRITICAL FIX] For Gemini 3, the thought_signature must also be INSIDE functionCall
+                                // [CRITICAL FIX] For Gemini 3, the thoughtSignature must also be INSIDE functionCall
                                 if let Some(fc) = part.get_mut("functionCall") {
                                     if let Some(obj) = fc.as_object_mut() {
-                                        obj.insert("thought_signature".to_string(), json!(final_encoded_sig));
+                                        obj.insert("thoughtSignature".to_string(), json!(final_encoded_sig));
                                     }
                                 }
                             }
@@ -820,7 +820,7 @@ fn build_contents(
                                     base64::engine::general_purpose::STANDARD.encode(sig)
                                 };
                                 
-                                part["thought_signature"] = json!(final_encoded_sig);
+                                // part["thought_signature"] = json!(final_encoded_sig);
                                 part["thoughtSignature"] = json!(final_encoded_sig);
                             }
 
