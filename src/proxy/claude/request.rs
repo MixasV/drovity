@@ -633,10 +633,19 @@ fn build_contents(
                                 }
 
                                 last_thought_signature = Some(sig.clone());
-                                // [FIX #545] Encode raw signature to Base64 for Gemini
-                                use base64::Engine;
-                                let encoded_sig = base64::engine::general_purpose::STANDARD.encode(sig);
-                                part["thoughtSignature"] = json!(encoded_sig);
+                                
+                                // [FIX] Avoid double Base64 encoding. 
+                                // If signature is already Base64, use as-is.
+                                let final_encoded_sig = if is_base64(sig) {
+                                    sig.clone()
+                                } else {
+                                    use base64::Engine;
+                                    base64::engine::general_purpose::STANDARD.encode(sig)
+                                };
+                                
+                                part["thought_signature"] = json!(final_encoded_sig);
+                                // Keep camelCase for backward compatibility with some internal endpoints
+                                part["thoughtSignature"] = json!(final_encoded_sig);
                             }
                             parts.push(part);
                         }
@@ -714,10 +723,23 @@ fn build_contents(
                             // Do NOT add skip_thought_signature_validator - Vertex AI rejects it
 
                             if let Some(sig) = final_sig {
-                                // [FIX #545] Encode raw signature to Base64 for Gemini
-                                use base64::Engine;
-                                let encoded_sig = base64::engine::general_purpose::STANDARD.encode(sig);
-                                part["thoughtSignature"] = json!(encoded_sig);
+                                // [FIX] Avoid double Base64 encoding.
+                                let final_encoded_sig = if is_base64(&sig) {
+                                    sig.clone()
+                                } else {
+                                    use base64::Engine;
+                                    base64::engine::general_purpose::STANDARD.encode(sig)
+                                };
+                                
+                                part["thought_signature"] = json!(final_encoded_sig);
+                                part["thoughtSignature"] = json!(final_encoded_sig);
+                                
+                                // [CRITICAL FIX] For Gemini 3, the thought_signature must also be INSIDE functionCall
+                                if let Some(fc) = part.get_mut("functionCall") {
+                                    if let Some(obj) = fc.as_object_mut() {
+                                        obj.insert("thought_signature".to_string(), json!(final_encoded_sig));
+                                    }
+                                }
                             }
                             parts.push(part);
                         }
@@ -790,10 +812,16 @@ fn build_contents(
 
                             // [修复] Tool Result 也需要回填签名（如果上下文中有）
                             if let Some(sig) = last_thought_signature.as_ref() {
-                                // [FIX #545] Encode raw signature to Base64 for Gemini
-                                use base64::Engine;
-                                let encoded_sig = base64::engine::general_purpose::STANDARD.encode(sig);
-                                part["thoughtSignature"] = json!(encoded_sig);
+                                // [FIX] Avoid double Base64 encoding
+                                let final_encoded_sig = if is_base64(sig) {
+                                    sig.clone()
+                                } else {
+                                    use base64::Engine;
+                                    base64::engine::general_purpose::STANDARD.encode(sig)
+                                };
+                                
+                                part["thought_signature"] = json!(final_encoded_sig);
+                                part["thoughtSignature"] = json!(final_encoded_sig);
                             }
 
                             parts.push(part);
@@ -1118,6 +1146,16 @@ pub fn clean_thinking_fields_recursive(val: &mut Value) {
     }
 }
 
+
+/// Check if a string is already Base64 encoded
+fn is_base64(s: &str) -> bool {
+    // Simple heuristic: check if it's alphanumeric with + / and = padding
+    // and its length is a multiple of 4.
+    if s.is_empty() || s.len() % 4 != 0 {
+        return false;
+    }
+    s.chars().all(|c| c.is_alphanumeric() || c == '+' || c == '/' || c == '=')
+}
 
 /// Check if two model strings are compatible (same family)
 fn is_model_compatible(cached: &str, target: &str) -> bool {
