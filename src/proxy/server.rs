@@ -93,6 +93,8 @@ async fn handle_list_models() -> Response {
     .into_response()
 }
 
+use std::collections::HashSet;
+
 async fn handle_chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -128,23 +130,55 @@ async fn handle_chat_completions(
     // Get all accounts for retry loop
     let accounts = state.accounts.read().await.clone();
     let pool_size = accounts.len();
-    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size).max(1);
+    // [FIX] Ensure at least 2 attempts if possible, to allow for rotation
+    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size.saturating_add(1)).max(2);
     
     let mut last_error = String::new();
     let mut last_email: Option<String> = None;
+    
+    // [FIX] Track failed accounts to strictly exclude them in retries
+    let mut failed_emails: HashSet<String> = HashSet::new();
     
     // Retry loop with account rotation
     for attempt in 0..max_attempts {
         let force_rotate = attempt > 0;
         
-        // Select account (rotate on retry)
+        // Select account (smart rotation with strict exclusion)
         let account = {
             let mut index_guard = state.current_account_index.write().await;
-            if force_rotate {
-                *index_guard = (*index_guard + 1) % pool_size;
-                tracing::info!("🔄 Force rotation: switched to account index {}", *index_guard);
+            
+            // If rotating or if current account is already failed, move to next
+            let start_index = *index_guard;
+            let mut found_account = None;
+            
+            // Try to find a non-failed account starting from current index
+            for i in 0..pool_size {
+                let idx = (start_index + i) % pool_size;
+                if let Some(acc) = accounts.get(idx) {
+                    if !failed_emails.contains(&acc.email) {
+                        // Found a candidate
+                        if i > 0 || force_rotate {
+                            // If we had to search (i > 0) or force_rotate is true, update global index
+                            *index_guard = idx;
+                            // If we just rotated to it, check if we need to rotate FURTHER 
+                            // (in case force_rotate was true but we landed on current).
+                            // But here we just want *an* available account.
+                        }
+                        found_account = Some(acc.clone());
+                        break;
+                    }
+                }
             }
-            accounts.get(*index_guard).cloned()
+            
+            // If no fresh account found (all failed), just return None or last one
+            if found_account.is_none() && !accounts.is_empty() {
+                 tracing::warn!("⚠️ All accounts marked as failed locally. Resetting local blacklist for this request.");
+                 failed_emails.clear();
+                 // Pick current as fallback
+                 accounts.get(*index_guard).cloned()
+            } else {
+                found_account
+            }
         };
         
         let account = match account {
@@ -171,6 +205,7 @@ async fn handle_chat_completions(
                 tracing::error!("❌ Failed to refresh token: {}", e);
                 last_error = format!("Token refresh failed: {}", e);
                 last_email = Some(account.email.clone());
+                failed_emails.insert(account.email.clone()); // Mark as failed
                 continue; // Try next account
             }
         };
@@ -182,6 +217,7 @@ async fn handle_chat_completions(
                 pid
             },
             Err(e) => {
+                // [FIX] Already using mock fallback in server.rs, now backed by stable ID
                 tracing::warn!("   Failed to get project_id, using mock: {}", e);
                 super::project_resolver::generate_mock_project_id()
             }
@@ -212,21 +248,21 @@ async fn handle_chat_completions(
                 // Check for retryable errors
                 if error_msg.contains("429") || error_msg.contains("503") || error_msg.contains("500") || error_msg.contains("RESOURCE_EXHAUSTED") {
                     tracing::warn!("   Retryable error detected, rotating to next account");
+                    failed_emails.insert(account.email.clone()); // [FIX] Strictly exclude this account
                     continue; // Retry with next account
                 }
                 
                 // Check for quota exhausted (stop retrying)
                 if error_msg.contains("QUOTA_EXHAUSTED") {
-                    tracing::error!("   Quota exhausted - stopping retry");
-                    return (
-                        StatusCode::TOO_MANY_REQUESTS,
-                        Json(json!({"error": format!("Quota exhausted: {}", error_msg)}))
-                    ).into_response();
+                    tracing::error!("   Quota exhausted - rotating"); // [FIX] Quota exhausted SHOULD rotate
+                    failed_emails.insert(account.email.clone());
+                    continue;
                 }
                 
                 // Check for auth errors
                 if error_msg.contains("401") || error_msg.contains("403") {
                     tracing::warn!("   Auth error, trying next account");
+                    failed_emails.insert(account.email.clone());
                     continue;
                 }
                 
@@ -240,6 +276,7 @@ async fn handle_chat_completions(
                 }
                 
                 // Generic error - retry
+                failed_emails.insert(account.email.clone());
                 continue;
             }
         }
@@ -270,22 +307,45 @@ async fn handle_anthropic_messages(
     // Account selection and retry logic
     let accounts = state.accounts.read().await;
     let pool_size = accounts.len();
-    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size).max(1);
+    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size.saturating_add(1)).max(2);
     
     let mut last_error = String::new();
     let mut last_email = None;
     
+    // [FIX] Strict exclusion list
+    let mut failed_emails: HashSet<String> = HashSet::new();
+    
     for attempt in 0..max_attempts {
         let force_rotate = attempt > 0;
         
-        // Select account
+        // Select account (smart rotation with strict exclusion)
         let account = {
             let mut index_guard = state.current_account_index.write().await;
-            if force_rotate {
-                *index_guard = (*index_guard + 1) % pool_size;
-                tracing::info!("🔄 Rotated to account index {}", *index_guard);
+            
+            // Try to find a non-failed account starting from current index
+            let start_index = *index_guard;
+            let mut found_account = None;
+            
+            for i in 0..pool_size {
+                let idx = (start_index + i) % pool_size;
+                if let Some(acc) = accounts.get(idx) {
+                    if !failed_emails.contains(&acc.email) {
+                        if i > 0 || force_rotate {
+                            *index_guard = idx;
+                        }
+                        found_account = Some(acc.clone());
+                        break;
+                    }
+                }
             }
-            accounts.get(*index_guard).cloned()
+            
+            // If all excluded, reset local list
+            if found_account.is_none() && !accounts.is_empty() {
+                 failed_emails.clear();
+                 accounts.get(*index_guard).cloned()
+            } else {
+                found_account
+            }
         };
         
         let account = match account {
@@ -310,6 +370,7 @@ async fn handle_anthropic_messages(
             Err(e) => {
                 last_error = e.to_string();
                 tracing::error!("❌ Token error: {}", e);
+                failed_emails.insert(account.email.clone());
                 continue;
             }
         };
@@ -331,18 +392,23 @@ async fn handle_anthropic_messages(
         tracing::debug!("🔍 RAW Claude payload: {}", serde_json::to_string_pretty(&claude_payload).unwrap_or_else(|_| "Failed to serialize".to_string()));
         
         // FULL CONVERSION: Parse Claude request into typed structure
-        let claude_request: super::claude::models::ClaudeRequest = match serde_json::from_value(claude_payload.clone()) {
+        let mut claude_request: super::claude::models::ClaudeRequest = match serde_json::from_value(claude_payload.clone()) {
             Ok(r) => r,
             Err(e) => {
                 last_error = format!("Failed to parse Claude request: {}", e);
                 tracing::error!("❌ Deserialization error: {}", last_error);
-                tracing::error!("   Payload was: {}", serde_json::to_string_pretty(&claude_payload).unwrap_or_else(|_| "N/A".to_string()));
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({"error": last_error}))
                 ).into_response();
             }
         };
+        
+        // [FIX] Self-Healing: Recover from broken tool loops
+        // If thinking signatures were invalid and stripped by the client (or previous turns),
+        // we might have a ToolResult without a preceding Thinking block.
+        // This function injects synthetic messages to close the loop gracefully.
+        super::claude::close_tool_loop_for_thinking(&mut claude_request.messages);
         
         // Convert using FULL DroidGravity-Manager logic
         let gemini_payload = match super::claude::transform_claude_request_in(&claude_request, &project_id) {
@@ -378,6 +444,7 @@ async fn handle_anthropic_messages(
                 // Retryable: 429, 500, 503
                 if error_msg.contains("429") || error_msg.contains("503") || error_msg.contains("500") || error_msg.contains("RESOURCE_EXHAUSTED") {
                     tracing::warn!("   Retryable error → next account");
+                    failed_emails.insert(account.email.clone());
                     continue;
                 }
                 
@@ -390,6 +457,7 @@ async fn handle_anthropic_messages(
                     ).into_response();
                 }
                 
+                failed_emails.insert(account.email.clone());
                 continue;
             }
         }
